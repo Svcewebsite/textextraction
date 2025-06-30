@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Live Text to PDF</title>
+  <style>
+    body { background: #111; color: white; font-family: sans-serif; text-align: center; }
+    video, canvas { max-width: 90%; margin-top: 10px; border: 2px solid #fff; border-radius: 10px; }
+    button { margin: 10px; padding: 10px 20px; border: none; background: #0f0; color: #000; font-size: 16px; border-radius: 5px; cursor: pointer; }
+    textarea { width: 90%; height: 150px; margin-top: 20px; padding: 10px; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <h1>📷 Live Text Extractor to PDF</h1>
+  <video id="video" autoplay></video>
+  <br/>
+  <button onclick="captureFrame()">📸 Capture Text</button>
+  <button onclick="downloadPDF()">📄 Download PDF</button>
+  <br/>
+  <textarea id="output" placeholder="Extracted text will appear here..."></textarea>
+
+  <!-- Scripts -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script>
+    // Get video element
+    const video = document.getElementById('video');
+    const output = document.getElementById('output');
+
+    // Access webcam
+    navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+      video.srcObject = stream;
+    });
+
+    // Capture frame and perform OCR
+    function captureFrame() {
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      Tesseract.recognize(canvas, 'eng', {
+        logger: m => console.log(m)
+      }).then(({ data: { text } }) => {
+        output.value = text;
+      });
+    }
+
+    // Download as PDF
+    function downloadPDF() {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+      doc.text(output.value || 'No text extracted.', 10, 10);
+      doc.save('extracted-text.pdf');
+    }
+  </script>
+</body>
+</html>
