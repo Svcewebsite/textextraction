@@ -1,59 +1,168 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Live Text to PDF</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>🔍 Live OCR → Formatted PDF</title>
   <style>
-    body { background: #111; color: white; font-family: sans-serif; text-align: center; }
-    video, canvas { max-width: 90%; margin-top: 10px; border: 2px solid #fff; border-radius: 10px; }
-    button { margin: 10px; padding: 10px 20px; border: none; background: #0f0; color: #000; font-size: 16px; border-radius: 5px; cursor: pointer; }
-    textarea { width: 90%; height: 150px; margin-top: 20px; padding: 10px; font-size: 14px; }
+    body {
+      background: #1e1e1e;
+      color: #eee;
+      font-family: sans-serif;
+      text-align: center;
+      padding: 1rem;
+    }
+    h1 {
+      color: #4ade80;
+    }
+    #video {
+      width: 90%;
+      max-width: 480px;
+      border: 2px solid #4ade80;
+      border-radius: 8px;
+    }
+    .controls {
+      margin: 1rem 0;
+    }
+    .controls input {
+      width: 60px;
+    }
+    button {
+      margin: 0.5rem;
+      padding: 0.75rem 1.5rem;
+      background: #4ade80;
+      border: none;
+      border-radius: 6px;
+      font-size: 1rem;
+      cursor: pointer;
+      color: #000;
+      transition: background 0.2s;
+    }
+    button:hover { background: #36b37e; }
+    #output-container {
+      width: 90%;
+      max-width: 480px;
+      margin: 1rem auto;
+      background: #272727;
+      padding: 1rem;
+      border-radius: 6px;
+      text-align: left;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    #output-container p {
+      margin: 0.5rem 0;
+    }
+    footer {
+      margin-top: 1.5rem;
+      font-size: 0.85rem;
+      color: #888;
+    }
   </style>
 </head>
 <body>
-  <h1>📷 Live Text Extractor to PDF</h1>
-  <video id="video" autoplay></video>
-  <br/>
-  <button onclick="captureFrame()">📸 Capture Text</button>
-  <button onclick="downloadPDF()">📄 Download PDF</button>
-  <br/>
-  <textarea id="output" placeholder="Extracted text will appear here..."></textarea>
+  <h1>🔍 Live OCR → Formatted PDF</h1>
+  <video id="video" autoplay playsinline></video>
+  
+  <div class="controls">
+    <!-- Parameters you can tweak -->
+    <label>Blur ksize:
+      <input type="number" id="blurSize" value="5" min="1" step="2">
+    </label>
+    <label>Thresh C:
+      <input type="number" id="threshC" value="7" min="0" step="1">
+    </label>
+  </div>
+  
+  <button id="captureBtn">📸 Capture & OCR</button>
+  <button id="downloadBtn">📄 Download PDF</button>
+  
+  <div id="output-container">
+    <p><em>Extracted text will appear here…</em></p>
+  </div>
+  
+  <footer>
+    Powered by OpenCV.js + Tesseract.js + html2pdf.js
+  </footer>
 
-  <!-- Scripts -->
+  <!-- Libraries -->
+  <script async src="https://docs.opencv.org/4.x/opencv.js" onload="cv['onRuntimeInitialized']=()=>console.log('OpenCV loaded');"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
   <script>
-    // Get video element
     const video = document.getElementById('video');
-    const output = document.getElementById('output');
+    const out = document.getElementById('output-container');
+    const blurInput = document.getElementById('blurSize');
+    const threshInput = document.getElementById('threshC');
 
-    // Access webcam
-    navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
-      video.srcObject = stream;
-    });
+    // 1️⃣ Get camera feed
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+      .then(s => video.srcObject = s)
+      .catch(e => alert('Camera error: ' + e.message));
 
-    // Capture frame and perform OCR
-    function captureFrame() {
+    // 2️⃣ Capture, preprocess & OCR
+    document.getElementById('captureBtn').onclick = async () => {
+      if (!cv || !Tesseract) { alert('Libraries still loading…'); return; }
+
+      // draw current frame into a canvas
       const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+      canvas.width = video.videoWidth; canvas.height = video.videoHeight;
       const ctx = canvas.getContext('2d');
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      Tesseract.recognize(canvas, 'eng', {
-        logger: m => console.log(m)
-      }).then(({ data: { text } }) => {
-        output.value = text;
-      });
-    }
+      ctx.drawImage(video, 0, 0);
 
-    // Download as PDF
-    function downloadPDF() {
-      const { jsPDF } = window.jspdf;
-      const doc = new jsPDF();
-      doc.text(output.value || 'No text extracted.', 10, 10);
-      doc.save('extracted-text.pdf');
-    }
+      // OpenCV Mat from canvas
+      let src = cv.imread(canvas);
+      // convert to gray
+      cv.cvtColor(src, src, cv.COLOR_RGBA2GRAY);
+      // blur
+      let k = parseInt(blurInput.value) | 1;
+      if (k % 2 === 0) k++;
+      cv.GaussianBlur(src, src, new cv.Size(k, k), 0);
+      // adaptive threshold
+      let C = parseInt(threshInput.value);
+      cv.adaptiveThreshold(src, src, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C,
+                           cv.THRESH_BINARY, 11, C);
+      // optional morphology to clear noise
+      let M = cv.Mat.ones(2, 2, cv.CV_8U);
+      cv.erode(src, src, M);
+      cv.dilate(src, src, M);
+
+      // back to canvas
+      cv.imshow(canvas, src);
+      src.delete(); M.delete();
+
+      // run Tesseract
+      out.innerHTML = '<p><em>Recognizing…</em></p>';
+      const { data:{ text } } = await Tesseract.recognize(canvas, 'eng', {
+        logger: m => console.log(m)
+      });
+
+      // filter noise: drop words < 3 letters, then split paragraphs
+      let clean = text
+        .split(/\n+/)
+        .map(line => line
+          .split(/\s+/)
+          .filter(w => w.length > 2)
+          .join(' '))
+        .filter(l => l.length > 10);
+
+      if (!clean.length) clean = ['<em>No clear text found. Try different lighting or tweak parameters.</em>'];
+
+      out.innerHTML = clean.map(l => `<p>${l}</p>`).join('');
+    };
+
+    // 3️⃣ Download nicely formatted PDF
+    document.getElementById('downloadBtn').onclick = () => {
+      const opt = {
+        margin:       0.5,
+        filename:     'live-ocr-output.pdf',
+        image:        { type: 'jpeg', quality: 0.98 },
+        html2canvas:  { scale: 2 },
+        jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
+      };
+      html2pdf().set(opt).from(out).save();
+    };
   </script>
 </body>
 </html>
